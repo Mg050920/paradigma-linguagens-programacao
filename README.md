@@ -1,154 +1,416 @@
-# Atividade prática — Resilience Patterns
+Paradigma e Linguagens da Programação
 
-- **Aluno:** Maurício Gabriel de Oliveira Becker
+Aluno: Maurício Gabriel de Oliveira Becker
 
-- **Disciplina:** Paradigma e Linguagens da Programação
+Disciplina: Paradigma e Linguagens da Programação
 
-- **Professor:** Luciano Rodrigo Ferretto
+Professor: Luciano Rodrigo Ferretto
 
-## Objetivo
+Curso: Ciência da Computação — Atitus Educação
 
-Aplicar os padrões de resiliência na comunicação entre o `product-api` e o `currency-api`, usando como base o projeto desenvolvido em aula. A ideia é permitir que os dados do produto continuem disponíveis quando houver algum problema na consulta da taxa de conversão.
+Sobre o projeto
 
-## Alterações realizadas
+Este repositório contém as atividades práticas realizadas na disciplina de Paradigma e Linguagens da Programação.
 
-Criei a classe `CurrencyClientService` para concentrar a chamada ao `currency-api`. O `ProductServiceJpa` passou a usar essa classe, em vez de chamar o cliente diretamente.
+O projeto foi desenvolvido com base nos exemplos trabalhados em aula, utilizando Java, Spring Boot e uma arquitetura de microserviços.
 
-Foram implementados os cinco padrões pedidos na atividade:
+A aplicação possui dois serviços principais:
 
-- **Fallback:** se a conversão falhar, o produto continua sendo retornado, mas com `convertedPrice` igual a `-1` e a indicação do erro em `environment`.
+product-api: responsável pelo cadastro e consulta dos produtos.
+currency-api: responsável pelas taxas de conversão entre moedas.
 
-- **Timeout:** foram configurados limites de 1 segundo para conexão e 2 segundos para leitura da resposta.
+A comunicação entre os serviços utiliza HttpExchange e RestClient, com o HashiCorp Consul para descoberta de serviços.
 
-- **Retry:** são feitas até 3 tentativas, contando a primeira, com intervalo de 1 segundo. Quando o circuito está aberto, a exceção `CallNotPermittedException` não provoca novas tentativas.
+Durante as atividades, foram implementados padrões de resiliência para tratar possíveis falhas de comunicação e melhorar o funcionamento da aplicação.
 
-- **Circuit Breaker:** considera as últimas 5 tentativas e começa a avaliar depois de 5 chamadas. Se a taxa de falhas atingir ou ultrapassar 50%, o circuito abre por 100 segundos. Depois desse período, uma nova chamada permite iniciar a verificação da recuperação.
+Atividade 1 — Resilience Patterns
+Objetivo
 
-- **Cache:** o Caffeine armazena as conversões por 10 minutos após a gravação, com limite de 1.000 entradas. A chave é formada pelas moedas de origem e destino.
+O objetivo da primeira atividade foi implementar os padrões de resiliência estudados em aula na comunicação entre o product-api e o currency-api.
 
-A ordem foi configurada como cache (99), retry (100) e circuit breaker (101). Assim, quando a taxa já está no cache, não é necessário consultar o outro serviço. O fallback fica no serviço de produtos para não salvar uma falha como taxa válida.
+A ideia era permitir que o sistema continuasse retornando os dados de um produto mesmo quando ocorresse algum problema durante a consulta da taxa de conversão.
 
-Também atualizei o script do Consul e adicionei as dependências necessárias. Durante a revisão, corrigi a ordem dos campos marca, modelo e descrição no `ProductResponse`, que estavam sendo preenchidos em posições diferentes das declaradas.
+Implementação
 
-## Como executar
+Criei a classe CurrencyClientService para centralizar as chamadas ao currency-api.
 
-Pré-requisitos:
+Também alterei o ProductServiceJpa para utilizar essa classe, mantendo a lógica de comunicação separada do serviço responsável pelos produtos.
 
-- JDK 25.
+Foram implementados os seguintes padrões:
 
-- PostgreSQL.
+Fallback
 
-- Consul disponível no PATH.
+Quando ocorre alguma falha na consulta da cotação, o sistema continua retornando os dados do produto.
 
-As versões do Java dos módulos foram mantidas como no projeto do professor: Java 21 no `product-api` e Java 25 no `currency-api`.
+Nesse caso, o campo convertedPrice recebe o valor -1, e o campo environment apresenta a informação sobre a falha.
 
-1. Criar os bancos `db_product` e `db_currency` no PostgreSQL local, na porta 5432.
+Timeout
 
-2. Conferir o usuário e a senha no arquivo `microservices/start_consul.bat`. O exemplo utiliza `postgres` nos dois campos.
+Foram definidos limites para evitar que a aplicação fique aguardando uma resposta por muito tempo:
 
-3. Executar `start_consul.bat` e conferir o Consul em http://localhost:8500.
+Connect timeout: 1 segundo.
+Read timeout: 2 segundos.
 
-4. Abrir um terminal na pasta `microservices/currency-api` e executar:
+Retry
 
-   ```bat
+Utilizei o Resilience4j para realizar novas tentativas quando ocorre uma falha na comunicação.
 
-   mvnw.cmd spring-boot:run
+As configurações utilizadas foram:
 
-   ```
+Até 3 tentativas, incluindo a primeira.
+Intervalo de 1 segundo entre as tentativas.
+Não repetir chamadas rejeitadas pelo Circuit Breaker.
 
-5. Em outro terminal, na pasta `microservices/product-api`, executar:
+Circuit Breaker
 
-   ```bat
+O Circuit Breaker foi configurado para acompanhar as falhas e interromper temporariamente novas chamadas quando necessário.
 
-   mvnw.cmd spring-boot:run
+Configuração	Valor
+Tipo de janela	COUNT_BASED
+Tamanho da janela	5
+Mínimo de chamadas	5
+Taxa de falhas	50%
+Tempo aberto	100 segundos
 
-   ```
+Quando o circuito é aberto, as chamadas são bloqueadas temporariamente e o fallback pode ser utilizado.
 
-6. Consultar http://localhost:8000/products/1?targetCurrency=BRL.
+Cache
 
-O Flyway cria as tabelas e insere os dados iniciais. As taxas de conversão são exemplos da atividade, não valores atualizados do mercado. As configurações de monitoramento e as credenciais de exemplo são para uso local.
+Utilizei o Caffeine para armazenar as taxas de conversão em memória, evitando consultas repetidas ao outro serviço.
 
-## Testes automatizados
+As configurações foram:
 
-Foram incluídos testes para conversão, fallback, mesma moeda, retry, abertura do circuito e uso do cache.
+Limite de 1.000 entradas.
+Expiração após 10 minutos.
+Chave formada pelas moedas de origem e destino.
 
-Para executar, na pasta `microservices/product-api`:
+A ordem dos mecanismos foi configurada como cache (99), retry (100) e circuit breaker (101).
 
-```bat
+Também foram realizados ajustes nas dependências, nas configurações do Consul e na ordem dos campos do ProductResponse.
+
+Testes da primeira atividade
+
+Foram criados testes automatizados para verificar o comportamento dos padrões implementados.
+
+Os testes incluem situações de conversão, fallback, retry, circuit breaker e cache.
+
+Para executar os testes, entrar na pasta microservices/product-api e utilizar:
 
 mvnw.cmd test
 
-```
+Resultado obtido em 15/10/2026:
 
-Os 6 testes automatizados do `product-api` foram executados em 15/10/2026 com Java 25, sem falhas ou erros, obtendo **BUILD SUCCESS**.
+Resultado	Quantidade
+Testes executados	6
+Falhas	0
+Erros	0
+Ignorados	0
 
-| Resultado | Quantidade |
+BUILD SUCCESS
 
-| --- | --- |
+Atividade 2 — Integração com API Externa e Resilience Patterns
+Objetivo
 
-| Testes executados | 6 |
+Na segunda atividade, o objetivo foi modificar o currency-api para consultar as cotações de moedas na API PTAX do Banco Central do Brasil.
 
-| Falhas | 0 |
+Antes dessa alteração, o serviço utilizava apenas as taxas cadastradas no banco de dados local.
 
-| Erros | 0 |
+Com a integração, a aplicação passou a consultar o Banco Central e utilizar o PostgreSQL como alternativa quando a consulta externa não retorna uma cotação válida.
 
-| Testes ignorados | 0 |
+Também foram aplicados os padrões de resiliência estudados anteriormente, desta vez na comunicação com uma API externa.
 
-Esses testes utilizam simulações das dependências. Os testes manuais com os dois microserviços em execução ainda estão pendentes.
+Implementação
+Integração com o Banco Central
 
-## Roteiro para testar os serviços
+Para realizar as consultas à API PTAX, utilizei HttpExchange e RestClient, seguindo o padrão de comunicação utilizado no projeto.
 
-Reiniciar o `product-api` antes de cada cenário limpa o cache em memória e o estado do circuito. Para facilitar a observação, utilizar uma instância de cada microserviço.
+A consulta utiliza o endpoint CotacaoMoedaDia.
 
-Os resultados desta tabela são esperados e ainda precisam ser confirmados na execução manual.
+Conforme permitido na atividade, configurei uma data fixa para consultar as cotações:
 
-| Padrão | Procedimento | Resultado esperado |
+bcb.ptax.data-cotacao=2026-10-27
 
-| --- | --- | --- |
+Assim, os valores retornados correspondem a uma cotação histórica, não necessariamente à cotação atual.
 
-| Cache | Consultar duas vezes a conversão USD para BRL | A segunda consulta usa o cache; o log de consulta remota aparece só na primeira |
+Fallback
 
-| Fallback | Com cache vazio, desligar o currency-api e consultar o produto | Dados do produto com `convertedPrice=-1` e erro em `environment` |
+O fallback foi implementado para consultar o PostgreSQL quando não for possível obter a cotação na API do Banco Central.
 
-| Retry | Executar o teste automatizado de duas falhas seguidas de sucesso | O resultado é obtido na terceira tentativa |
+Isso pode acontecer quando:
 
-| Circuit Breaker | Manter o currency-api indisponível e repetir consultas sem cache | Após cinco tentativas consecutivas com falha, partindo do circuito reiniciado, o circuito abre e impede novas chamadas remotas |
+A API externa está indisponível.
+Ocorre alguma falha na comunicação.
+A consulta ultrapassa o tempo limite.
+Não existe cotação para a moeda ou data solicitada.
+O Circuit Breaker está aberto.
 
-| Timeout | Durante o teste, atrasar a resposta do currency-api por mais de 2 segundos | A tentativa falha por timeout de leitura |
+Se a cotação também não estiver disponível no banco local, a aplicação retorna HTTP 404.
 
-Para provocar o atraso, pode-se usar um breakpoint dentro de `CurrencyController.getCurrency`, suspendendo apenas a thread da requisição. Depois do teste, liberar a execução.
+Timeout
 
-Com os dados iniciais, o produto 1 custa USD 699 e a conversão para BRL usa a taxa 5,15, resultando em aproximadamente 3599,85. Esse valor serve como referência para o teste.
+Foram utilizados os tempos definidos na atividade:
 
-O log `Consultando currency-api` ajuda a contar as tentativas. Os endpoints abaixo ajudam a acompanhar o comportamento do `product-api`:
+Connect timeout: 2 segundos.
+Read timeout: 5 segundos.
+Retry
 
-- http://localhost:8000/actuator/health
+O Retry foi configurado utilizando Resilience4j.
 
-- http://localhost:8000/actuator/caches
+Máximo de 3 tentativas.
+Intervalo de 1 segundo.
+Não repetir chamadas rejeitadas pelo Circuit Breaker.
 
-- http://localhost:8000/actuator/metrics
+Respostas sem cotação também não são repetidas, pois novas tentativas para a mesma moeda e data não resolveriam necessariamente a ausência dos dados.
 
-- http://localhost:8000/actuator/circuitbreakers
+Circuit Breaker
 
-Após executar os cenários, registrar as respostas e os logs observados.
+Foram mantidos os parâmetros solicitados pelo professor:
 
-Para verificar a recuperação do circuito, ligar novamente o `currency-api`, aguardar pelo menos 100 segundos e fazer consultas sem cache para completar as chamadas de teste do estado `HALF_OPEN`.
+Configuração	Valor
+Tipo de janela	COUNT_BASED
+Tamanho da janela	5
+Mínimo de chamadas	5
+Taxa de falhas	50%
+Tempo aberto	100 segundos
 
-## Observações
+Quando o circuito está aberto, a aplicação pode utilizar o fallback local sem continuar realizando chamadas externas.
 
-O circuit breaker conta cada tentativa, incluindo as repetições feitas pelo retry.
+Cache
 
-O timeout de leitura não limita toda a requisição a 2 segundos, porque podem ocorrer novas tentativas e intervalos de espera.
+Para o armazenamento temporário das cotações, utilizei o Caffeine com as seguintes configurações:
 
-O valor `-1` é apenas o marcador solicitado no exercício, não um preço real.
+Máximo de 1.000 entradas.
+Expiração de 10 minutos.
+Chave considerando moeda e data.
+Armazenamento somente de cotações válidas.
 
-## Repositório
+O objetivo do cache é diminuir a quantidade de consultas repetidas ao Banco Central.
 
-Código-fonte da atividade:
+Conversão de moedas
+
+A aplicação também realiza o cálculo das conversões entre diferentes moedas.
+
+Para converter entre duas moedas estrangeiras, são utilizadas as respectivas cotações em reais.
+
+Na conversão de reais para outra moeda, é utilizado o inverso da cotação.
+
+Quando as moedas são iguais, a taxa retornada é 1.
+
+Classes utilizadas
+
+As principais classes adicionadas foram:
+
+Classe	Função
+BcbPtaxClient	Realiza a comunicação HTTP com o Banco Central
+BcbPtaxResponse	Representa os dados recebidos da API
+BcbClientConfiguration	Configura o RestClient e os timeouts
+BcbQuoteService	Realiza consultas com Retry e Circuit Breaker
+CachedBcbQuoteService	Controla o cache das cotações
+CurrencyServiceBcb	Realiza as conversões e o fallback local
+
+A classe CurrencyServiceBcb implementa a interface CurrencyService e utiliza @Primary.
+
+A implementação anterior com JPA foi mantida para preservar a estrutura do projeto.
+
+Testes da segunda atividade
+
+Foram adicionados testes automatizados para verificar as funcionalidades implementadas.
+
+Entre os comportamentos testados estão:
+
+Consulta e conversão de moedas.
+Conversão inversa.
+Conversão entre moedas estrangeiras.
+Utilização do fallback.
+Tratamento de cotação inexistente.
+Retorno HTTP 404.
+Funcionamento do Retry.
+Abertura do Circuit Breaker.
+Utilização do cache.
+
+Para executar os testes, acessar a pasta microservices/currency-api e utilizar:
+
+mvnw.cmd clean test
+
+Resultado obtido em 29/10/2026:
+
+Resultado	Quantidade
+Testes executados	14
+Falhas	0
+Erros	0
+Ignorados	0
+
+BUILD SUCCESS
+
+Os testes automatizados utilizam simulações para verificar diferentes situações de funcionamento.
+
+Testes realizados com os microserviços
+
+Além dos testes automatizados, executei os dois microserviços localmente para verificar se a comunicação continuava funcionando após as alterações.
+
+Utilizei o Docker Desktop para executar o PostgreSQL e o HashiCorp Consul.
+
+Foram utilizados dois bancos de dados:
+
+db_currency
+db_product
+
+O currency-api foi iniciado na porta 8100 e o product-api na porta 8000.
+
+Os serviços foram registrados no Consul e apareceram com status saudável.
+
+Teste do currency-api
+
+Realizei uma consulta utilizando o endpoint:
+
+GET http://localhost:8100/currencies?source=USD&target=BRL
+
+Resposta obtida:
+
+{
+  "sourceCurrency": "USD",
+  "targetCurrency": "BRL",
+  "conversionRate": 5.3346,
+  "environment": "Currency API running in Port: 8100"
+}
+
+O log da aplicação registrou uma consulta à API PTAX do Banco Central utilizando a data de 27/10/2026.
+
+O endpoint retornou a taxa de conversão corretamente. A origem final da cotação ainda pode ser conferida pelos logs para distinguir uma resposta externa do fallback local.
+
+Teste do product-api
+
+Também consultei o produto de ID 1, solicitando a conversão para reais.
+
+GET http://localhost:8000/products/1?targetCurrency=BRL
+
+O produto utilizado no teste foi um Apple iPhone 15, com preço original de USD 699,00.
+
+A aplicação retornou a taxa de 5,3346.
+
+Cálculo:
+
+699 × 5,3346 = 3728,8854
+
+O resultado corresponde ao preço convertido de R$ 3.728,8854.
+
+Com esse teste, foi possível verificar que o product-api conseguiu consultar o serviço de moedas e utilizar a taxa retornada.
+
+Outros cenários de validação
+
+Além das consultas realizadas, a atividade prevê verificar outros comportamentos:
+
+Cenário	Resultado esperado
+Cotação disponível no BCB	Retornar a cotação consultada
+Cotação indisponível	Utilizar o banco local
+Falha de comunicação	Realizar as tentativas configuradas
+Resposta demorada	Acionar o timeout
+Falhas consecutivas	Abrir o Circuit Breaker
+Circuito aberto	Utilizar o fallback
+Consultas repetidas	Utilizar o cache
+Cotação inexistente nas duas fontes	Retornar HTTP 404
+
+Esses cenários foram considerados nos testes automatizados e no roteiro de validação. A execução manual completa de todos eles ainda está pendente.
+
+Como executar o projeto
+Tecnologias utilizadas
+Java 21 e Java 25
+Spring Boot
+Spring Cloud
+Spring Data JPA
+PostgreSQL
+HashiCorp Consul
+Resilience4j
+Caffeine
+Flyway
+Maven
+Docker
+Pré-requisitos
+
+Para executar o projeto, é necessário ter:
+
+JDK 25 instalado.
+PostgreSQL disponível.
+HashiCorp Consul configurado.
+Bancos db_currency e db_product criados.
+Configurações de conexão com o banco cadastradas.
+
+Nos testes locais, utilizei o PostgreSQL 16 pelo Docker na porta 5433 e o Consul na porta 8500.
+
+O projeto também mantém o arquivo microservices/start_consul.bat, utilizado para iniciar o Consul e configurar os serviços quando o executável está instalado localmente.
+
+As configurações do banco devem ser ajustadas de acordo com o ambiente de execução.
+
+Executando o currency-api
+
+Abrir um terminal na pasta:
+
+microservices/currency-api
+
+Executar:
+
+mvnw.cmd spring-boot:run
+
+Endpoint de consulta:
+
+http://localhost:8100/currencies?source=USD&target=BRL
+Executando o product-api
+
+Abrir outro terminal na pasta:
+
+microservices/product-api
+
+Executar:
+
+mvnw.cmd spring-boot:run
+
+Endpoint de consulta:
+
+http://localhost:8000/products/1?targetCurrency=BRL
+
+Para testar a comunicação entre os serviços, os dois microserviços precisam estar executando.
+
+Organização do projeto
+paradigma-linguagens-programacao/
+|
+|-- README.md
+|
+|-- microservices/
+    |
+    |-- product-api/
+    |   |-- src/
+    |   |-- pom.xml
+    |
+    |-- currency-api/
+    |   |-- src/
+    |   |-- pom.xml
+    |
+    |-- start_consul.bat
+    |
+    |-- ATIVIDADE_BCB.md
+
+A primeira atividade foi desenvolvida principalmente no product-api, enquanto a segunda concentrou as alterações no currency-api.
+
+A documentação específica da segunda atividade está disponível no arquivo:
+
+ATIVIDADE_BCB.md
+
+Considerações finais
+
+Com essas atividades, pude praticar os padrões de resiliência apresentados durante as aulas e entender melhor como eles podem ser utilizados na comunicação entre serviços.
+
+Na primeira atividade, trabalhei com a comunicação entre dois microserviços. Na segunda, apliquei os mesmos conceitos na integração com uma API externa.
+
+Também consegui praticar o uso do Resilience4j, cache com Caffeine, comunicação HTTP e configuração dos serviços utilizando Consul e PostgreSQL.
+
+Os testes automatizados foram executados com sucesso, e a comunicação entre o product-api e o currency-api foi verificada localmente.
+
+Repositórios
+
+Repositório da atividade:
 
 https://github.com/Mg050920/paradigma-linguagens-programacao
 
-Projeto do professor utilizado como base:
+Projeto utilizado como base nas aulas:
 
 https://github.com/luciano-ferretto/ParadLingProg_202602
-
